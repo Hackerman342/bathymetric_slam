@@ -33,6 +33,8 @@
 
 #include "bathy_slam/bathy_slam.hpp"
 
+#include <pcl/filters/uniform_sampling.h>
+
 #define INTERACTIVE 0
 #define VISUAL 1
 
@@ -43,15 +45,13 @@ using namespace g2o;
 int main(int argc, char** argv){
 
     // Inputs
-    std::string folder_str, path_str, output_str, original, simulation;
+    std::string folder_str, path_str, output_str, simulation;
     cxxopts::Options options("MyProgram", "One line description of MyProgram");
     options.add_options()
         ("help", "Print help")
-        ("covs_folder", "Input covs folder", cxxopts::value(folder_str))
-        ("output_cereal", "Output graph cereal", cxxopts::value(output_str))
-        ("original", "Disturb original trajectory", cxxopts::value(original))
         ("simulation", "Simulation data from Gazebo", cxxopts::value(simulation))
-        ("slam_cereal", "Input ceres file", cxxopts::value(path_str));
+        ("bathy_survey", "Input MBES pings in cereal file if simulation = no. If in simulation"
+                          "input path to map_small folder", cxxopts::value(path_str));
 
     auto result = options.parse(argc, argv);
     if (result.count("help")) {
@@ -65,38 +65,34 @@ int main(int argc, char** argv){
     string outFilename = "graph_corrupted.g2o";   // G2O output file
 
     // Parse submaps from cereal file
-    SubmapsVec submaps_gt;
     boost::filesystem::path submaps_path(path_str);
-    std::cout << "Input data " << boost::filesystem::basename(submaps_path) << std::endl;
+    std::cout << "Input data " << submaps_path << std::endl;
+
+    SubmapsVec submaps_gt;
     if(simulation == "yes"){
         submaps_gt = readSubmapsInDir(submaps_path.string());
     }
     else{
-        if(original == "yes"){
-            std_data::pt_submaps ss = std_data::read_data<std_data::pt_submaps>(submaps_path);
-            submaps_gt = parseSubmapsAUVlib(ss);
-        }
-        else{
-            std::ifstream is(boost::filesystem::basename(submaps_path) + ".cereal", std::ifstream::binary);
-            {
-              cereal::BinaryInputArchive iarchive(is);
-              iarchive(submaps_gt);
+        std_data::mbes_ping::PingsT std_pings = std_data::read_data<std_data::mbes_ping::PingsT>(submaps_path);
+        std::cout << "Number of pings in survey " << std_pings.size() << std::endl;
+        {
+            SubmapsVec traj_pings = parsePingsAUVlib(std_pings);
+            submaps_gt = createSubmaps(traj_pings);
+            // Filtering of submaps
+            PointCloudT::Ptr cloud_ptr (new PointCloudT);
+            pcl::UniformSampling<PointT> us_filter;
+            us_filter.setInputCloud (cloud_ptr);
+            us_filter.setRadiusSearch(2);
+            for(SubmapObj& submap_i: submaps_gt){
+                *cloud_ptr = submap_i.submap_pcl_;
+                us_filter.setInputCloud(cloud_ptr);
+                us_filter.filter(*cloud_ptr);
+                submap_i.submap_pcl_ = *cloud_ptr;
             }
         }
-        // Filtering of submaps
-        PointCloudT::Ptr cloud_ptr (new PointCloudT);
-        pcl::UniformSampling<PointT> us_filter;
-        us_filter.setInputCloud (cloud_ptr);
-        us_filter.setRadiusSearch(2);   // 1 for Borno, 2 for Antarctica
-        for(SubmapObj& submap_i: submaps_gt){
-    //        std::cout << "before " << submap_i.submap_pcl_.size() << std::endl;
-            *cloud_ptr = submap_i.submap_pcl_;
-            us_filter.setInputCloud(cloud_ptr);
-            us_filter.filter(*cloud_ptr);
-            submap_i.submap_pcl_ = *cloud_ptr;
-    //        std::cout << submap_i.submap_pcl_.size() << std::endl;
-        }
     }
+    std::cout << "Number of submaps " << submaps_gt.size() << std::endl;
+
 
     // Read training covs from folder
     covs covs_lc;
@@ -111,6 +107,7 @@ int main(int argc, char** argv){
     PointsT gt_track = trackToMatrixSubmap(submaps_gt);
     benchmark.add_ground_truth(gt_map, gt_track);
     ceres::optimizer::saveOriginalTrajectory(submaps_gt); // Save original trajectory to txt
+    std::cout << "Visualizing original survey, press q to continue" << std::endl;
 
     // Visualization
 #if VISUAL == 1
@@ -122,7 +119,6 @@ int main(int argc, char** argv){
         viewer.spinOnce ();
     }
     viewer.resetStoppedFlag();
-//    viewer.saveCameraParameters("Antarctica7");
 #endif
 
     // GICP reg for submaps
@@ -135,17 +131,11 @@ int main(int argc, char** argv){
     GaussianGen transSampler, rotSampler;
     Matrix<double, 6,6> information = generateGaussianNoise(transSampler, rotSampler);
 
-//    // Noise to map
-//    addNoiseToMap(transSampler, rotSampler, submaps_gt);
-//    visualizer->updateVisualizer(submaps_gt);
-//    while(!viewer.wasStopped ()){
-//        viewer.spinOnce ();
-//    }
-//    viewer.resetStoppedFlag();
-
     // Create SLAM solver and run offline
+    std::cout << "Building bathymetric graph with GICP submap registration" << std::endl;
     BathySlam slam_solver(graph_obj, gicp_reg);
     SubmapsVec submaps_reg = slam_solver.runOffline(submaps_gt, transSampler, rotSampler);
+    std::cout << "Done building graph, press q to continue" << std::endl;
 
 #if VISUAL == 1
     // Update visualizer
@@ -161,6 +151,7 @@ int main(int argc, char** argv){
 
     // Create initial DR chain and visualize
     graph_obj.createInitialEstimate(submaps_reg);
+    std::cout << "Gaussian noise added to graph, press q to continue" << std::endl;
 
 #if VISUAL == 1
     visualizer->plotPoseGraphG2O(graph_obj, submaps_reg);
@@ -189,6 +180,7 @@ int main(int argc, char** argv){
         oarchive(submaps_reg);
         os.close();
     }
+    std::cout << "Graph optimized, press q to continue" << std::endl;
 
 #if VISUAL == 1
     // Visualize Ceres output
@@ -206,7 +198,7 @@ int main(int argc, char** argv){
     benchmark.add_benchmark(opt_map, opt_track, "optimized");
     benchmark.print_summary();
 
-    std::string command_str = "./plot_results.py --initial_poses poses_original.txt --corrupted_poses poses_corrupted.txt --optimized_poses poses_optimized.txt";
+    std::string command_str = "../scripts/plot_results.py --initial_poses poses_original.txt --corrupted_poses poses_corrupted.txt --optimized_poses poses_optimized.txt";
     const char *command = command_str.c_str();
     system(command);
 

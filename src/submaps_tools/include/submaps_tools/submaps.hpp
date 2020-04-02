@@ -20,9 +20,7 @@
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/transforms.h>
-#include <pcl/common/projection_matrix.h>
-#include <pcl/filters/uniform_sampling.h>
-#include <pcl/filters/statistical_outlier_removal.h>
+
 #include <Eigen/Core>
 
 #include "data_tools/std_data.h"
@@ -50,6 +48,7 @@ public:
     Eigen::Vector3d colors_;
     Eigen::Isometry3f submap_tf_;
     Eigen::Matrix<double,6,6> submap_info_;
+    Eigen::Matrix<double,6,6> submap_lc_info_;
     Eigen::MatrixXd auv_tracks_;
 
     SubmapObj();
@@ -112,6 +111,8 @@ SubmapsVec parseSubmapsAUVlib(std_data::pt_submaps& ss);
 std::tuple<MapObj, Isometry3d> parseMapAUVlib(std_data::pt_submaps& ss);
 
 SubmapsVec parsePingsAUVlib(std_data::mbes_ping::PingsT& pings);
+
+SubmapsVec createSubmaps(SubmapsVec& pings);
 
 void transformSubmapObj(SubmapObj& submap, Isometry3f& poseDRt);
 
