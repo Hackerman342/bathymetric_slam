@@ -22,14 +22,18 @@ The method implemented is described [in this paper](https://ieeexplore.ieee.org/
 @article{torroba2020pointnetkl,
   title={PointNetKL: Deep Inference for GICP Covariance Estimation in Bathymetric SLAM},
   author={Torroba, Ignacio and Sprague, Christopher Iliffe and Bore, Nils and Folkesson, John},
-  journal={arXiv preprint arXiv:2003.10931},
-  year={2020}
+  journal={IEEE Robotics and Automation Letters},
+  volume={5},
+  number={3},
+  pages={4078--4085},
+  year={2020},
+  publisher={IEEE}
 }
 ```
 
 ## Dependencies (tested on Ubuntu 16.04 and 18.04)
 * AUVLIB [here](https://github.com/ignaciotb/auvlib) 
-* PCL  http://pointclouds.org/
+* PCL  http://pointclouds.org/ (version 1.8.1)
 * G2O https://github.com/RainerKuemmerle/g2o
 * Ceres http://ceres-solver.org/
 
